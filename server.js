@@ -33,16 +33,11 @@ function loadEnvFile(filePath = path.join(__dirname, '.env')) {
 loadEnvFile();
 
 const PORT = Number(process.env.PORT || 8000);
-const SEED_ACCESS_CODES = String(process.env.BLACKCHECK_ACCESS_CODE || '')
-  .split(',')
-  .map((code) => code.trim())
-  .filter(Boolean);
-const BUSINESS_TOKEN = String(process.env.BLACKCHECK_BUSINESS_TOKEN || '').trim();
-const ADMIN_TOKEN = String(process.env.BLACKCHECK_ADMIN_TOKEN || '').trim();
+const INITIAL_ACCESS_CODE = 'gangnamking';
 const MAX_COMMENT_LENGTH = 1000;
 const MYSQL_HOST = String(process.env.MYSQL_HOST || '').trim();
 const MYSQL_DATABASE = String(process.env.MYSQL_DATABASE || 'gangnam_DB').trim();
-const READONLY_MYSQL_DATABASE = String(process.env.READONLY_MYSQL_DATABASE || 'mnms_prod').trim();
+const READONLY_MYSQL_DATABASE = String(process.env.READONLY_MYSQL_DATABASE || 'mnms_DB').trim();
 
 function assertSqlIdentifier(value, name) {
   if (!/^[A-Za-z0-9_]+$/.test(value)) throw new Error(`${name} 환경 변수에 올바르지 않은 SQL 식별자가 있습니다.`);
@@ -57,7 +52,7 @@ const dbPool = mysql.createPool({
   user: process.env.MYSQL_USER,
   password: process.env.MYSQL_PASSWORD,
   waitForConnections: true,
-  connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
+  connectionLimit: 10,
   charset: 'utf8mb4'
 });
 
@@ -119,19 +114,17 @@ async function initializeDatabase() {
       REFERENCES bamcheat_comments(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 
-  for (const accessCode of SEED_ACCESS_CODES) {
-    await dbPool.execute(
-      `INSERT IGNORE INTO \`${MYSQL_DATABASE}\`.blackcheck_access_codes (access_code) VALUES (?)`,
-      [accessCode]
-    );
-  }
+  await dbPool.execute(
+    `INSERT IGNORE INTO \`${MYSQL_DATABASE}\`.blackcheck_access_codes (access_code) VALUES (?)`,
+    [INITIAL_ACCESS_CODE]
+  );
 }
 
 function getCorsHeaders() {
   return {
-    'Access-Control-Allow-Origin': process.env.BLACKCHECK_CORS_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Credentials': 'true'
   };
 }
@@ -180,10 +173,7 @@ function sanitizeComment(value) {
   return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s{3,}/g, '  ').trim().slice(0, MAX_COMMENT_LENGTH);
 }
 
-async function resolveViewer(req, data = {}) {
-  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  if (ADMIN_TOKEN && token === ADMIN_TOKEN) return { id: 'admin', role: 'ADMIN', authenticated: true, privileged: true };
-  if (BUSINESS_TOKEN && token === BUSINESS_TOKEN) return { id: 'business', role: 'BUSINESS', authenticated: true, privileged: true };
+async function resolveViewer(data = {}) {
   const accessCode = String(data.accessCode || '').trim();
   const [rows] = accessCode
     ? await dbPool.execute(`SELECT id FROM \`${MYSQL_DATABASE}\`.blackcheck_access_codes WHERE access_code = ? AND enabled = TRUE LIMIT 1`, [accessCode])
@@ -277,9 +267,9 @@ async function createDatabaseComment({ phoneNumber, authorUserId, region, distri
 
 async function handleApi(req, res, url) {
   const queryData = Object.fromEntries(url.searchParams.entries());
-  const bodyData = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? await getRequestBody(req) : {};
+  const bodyData = req.method === 'POST' ? await getRequestBody(req) : {};
   const input = { ...queryData, ...bodyData };
-  const viewer = await resolveViewer(req, input);
+  const viewer = await resolveViewer(input);
 
   if (req.method === 'POST' && url.pathname === '/api/blackcheck/access') {
     if (!assertCanAccess(res, viewer)) return;
@@ -333,17 +323,6 @@ async function handleApi(req, res, url) {
     const [[countRow]] = await dbPool.execute(`SELECT COUNT(*) AS count FROM \`${MYSQL_DATABASE}\`.bamcheat_recommendations WHERE comment_id = ?`, [commentId]);
     const recommendationCount = Number(countRow.count);
     sendJson(res, 200, { recommendationCount, isRecommendedByMe });
-    return;
-  }
-
-  const deleteMatch = url.pathname.match(/^\/api\/bamcheat\/comments\/([^/]+)$/);
-  if (req.method === 'DELETE' && deleteMatch) {
-    if (viewer.role !== 'ADMIN') return sendError(res, 403, '관리자만 코멘트를 삭제할 수 있습니다.');
-    const commentId = decodeURIComponent(deleteMatch[1]);
-    if (!/^\d+$/.test(commentId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
-    const [result] = await dbPool.execute(`DELETE FROM \`${MYSQL_DATABASE}\`.bamcheat_comments WHERE id = ?`, [commentId]);
-    if (!result.affectedRows) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
-    sendJson(res, 200, { success: true });
     return;
   }
 
