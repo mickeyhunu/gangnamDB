@@ -125,6 +125,9 @@ async function handleCommentClick(event) {
 
 function init() {
   Object.keys(REGION_DISTRICT_MAP).forEach((region) => $('comment-region').append(new Option(region, region)));
+  $('comment-region').value = '서울';
+  updateDistricts();
+  $('comment-district').value = '강남구';
   $('access-form').addEventListener('submit', submitAccessCode);
   $('reset-code-btn').addEventListener('click', () => { accessCode = ''; sessionStorage.removeItem('blackcheck_access_code'); renderComments([], ''); updateAccessView(); });
   $('phone-input').addEventListener('input', (event) => { event.target.value = normalizePhone(event.target.value); });
@@ -132,7 +135,6 @@ function init() {
   $('comment-region').addEventListener('change', updateDistricts);
   $('comment-form').addEventListener('submit', submitComment);
   $('comment-list').addEventListener('click', handleCommentClick);
-  updateDistricts();
   updateAccessView();
   renderComments([], '');
 }
