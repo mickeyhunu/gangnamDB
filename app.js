@@ -109,10 +109,10 @@ async function submitComment(event) {
   event.preventDefault();
   const region = $('comment-region').value;
   const district = $('comment-district').value;
-  const comment = $('comment-input').value.trim();
+  const comment = $('comment-input').value;
   if (!REGION_DISTRICT_MAP[region]) return void ($('main-status').textContent = '활동 시/도를 선택해주세요.');
   if (!REGION_DISTRICT_MAP[region].includes(district)) return void ($('main-status').textContent = '활동 구/군을 선택해주세요.');
-  if (!comment) return void ($('main-status').textContent = '코멘트를 입력해주세요.');
+  if (!comment.trim()) return void ($('main-status').textContent = '코멘트를 입력해주세요.');
   try { await request('POST', '/bamcheat/comments', withAccess({ phoneNumber: normalizePhone($('comment-phone').value), region, district, comment })); $('comment-input').value = ''; $('main-status').textContent = '코멘트가 등록되었습니다.'; await searchComments(); }
   catch (error) { $('main-status').textContent = error.message; }
 }
