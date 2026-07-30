@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>콜체크 | 번호 코멘트 조회</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./index.html" aria-label="콜체크 홈">
+      <span class="brand-mark">CC</span>
+      <span>콜체크</span>
+    </a>
+    <nav class="header-actions" aria-label="입장코드 메뉴">
+      <span class="user-chip hidden" id="active-code-chip">입장코드 접속 중</span>
+      <button class="btn btn-ghost" type="button" id="reset-code-btn">코드 변경</button>
+    </nav>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="hero-copy">
+        <p class="eyebrow">사업자 전용 번호 리스크 체크</p>
+        <h1 id="hero-title">안전한 영업을 위한<br><strong>번호 조회</strong></h1>
+      </div>
+    </section>
+
+    <section class="card" id="access-card" aria-labelledby="access-title">
+      <h2 id="access-title">접근 코드 입력</h2>
+      <p class="muted">회원가입 없이 입장코드만 입력하면 조회와 코멘트를 자유롭게 이용할 수 있습니다.</p>
+      <form id="access-form" class="inline-form">
+        <input class="form-control" id="access-code-input" type="password" placeholder="접근 코드 입력" autocomplete="off" required />
+        <button class="btn btn-primary" type="submit">입장</button>
+      </form>
+      <p class="status" id="access-status" role="status"></p>
+    </section>
+
+    <section class="card hidden" id="content-card" aria-label="번호 조회 및 코멘트">
+      <form id="search-form" class="search-form">
+        <div class="inline-form">
+          <input class="form-control" id="phone-input" type="search" inputmode="numeric" pattern="[0-9]*" maxlength="11" placeholder="전화번호 입력" autocomplete="off" required />
+          <button class="btn btn-primary" type="submit">검색</button>
+        </div>
+      </form>
+      <p class="status" id="main-status" role="status"></p>
+
+      <span class="section-title hidden" id="result-heading">🔍 번호조회 결과</span>
+      <section class="overview hidden" id="overview" aria-label="번호 검색 요약"></section>
+
+      <span class="section-title hidden" id="comment-heading">💬 이용자 코멘트</span>
+      <ul class="comment-list" id="comment-list"></ul>
+      <p class="muted empty" id="empty-message"></p>
+
+      <form id="comment-form" class="comment-form hidden">
+        <input type="hidden" id="comment-phone" />
+        <label class="form-label" for="comment-input">코멘트 남기기</label>
+        <div class="area-row">
+          <select class="form-control" id="comment-region" required>
+            <option value="">시/도 선택</option>
+          </select>
+          <select class="form-control" id="comment-district" required disabled>
+            <option value="">구/군 선택</option>
+          </select>
+        </div>
+        <textarea class="form-control" id="comment-input" rows="5" maxlength="1000" placeholder="예: 예약 문의 후 연락 두절 제보가 있습니다." required></textarea>
+        <button class="btn btn-primary btn-full" type="submit">코멘트 등록</button>
+        <p class="policy-notice">주의 안내: 실명, 주소, 욕설, 범죄 단정 표현은 금지됩니다.</p>
+      </form>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
