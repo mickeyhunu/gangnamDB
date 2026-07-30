@@ -9,7 +9,7 @@ cd blackcheck-platform
 npm start
 ```
 
-기본 실행 주소는 `http://localhost:8080`이며, API는 같은 서버의 `/api/*` 경로로 제공됩니다.
+기본 실행 주소는 `http://localhost:8000`이며, API는 같은 서버의 `/api/*` 경로로 제공됩니다. 실행할 때 프로젝트 루트의 `.env` 파일을 자동으로 읽으며, 셸에서 직접 지정한 환경 변수는 `.env`보다 우선합니다.
 
 ## 입장코드 설정
 
@@ -20,6 +20,12 @@ BLACKCHECK_ACCESS_CODE='원하는입장코드' npm start
 ```
 
 환경 변수를 지정하지 않으면 기본 입장코드는 `blackcode`입니다. 프론트엔드는 입장코드를 하드코딩해서 검사하지 않고, 서버의 `/api/blackcheck/access` API로 검증합니다.
+
+여러 입장코드를 허용하려면 쉼표로 구분해서 설정할 수 있습니다.
+
+```dotenv
+BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
+```
 
 ## 포함된 API
 
@@ -42,8 +48,8 @@ BLACKCHECK_ACCESS_CODE='원하는입장코드' npm start
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `PORT` | `8080` | 독립 서버 포트 |
-| `BLACKCHECK_ACCESS_CODE` | `blackcode` | 사용자가 입력해야 하는 입장코드 |
+| `PORT` | `8000` | 독립 서버 포트 |
+| `BLACKCHECK_ACCESS_CODE` | `blackcode` | 사용자가 입력해야 하는 입장코드(여러 개는 쉼표로 구분) |
 | `BLACKCHECK_DATA_FILE` | `./data/comments.json` | 코멘트/추천 JSON 저장 파일 |
 | `BLACKCHECK_BUSINESS_TOKEN` | 없음 | API용 기업회원 권한 Bearer 토큰 |
 | `BLACKCHECK_ADMIN_TOKEN` | 없음 | API용 관리자 권한 Bearer 토큰 |
