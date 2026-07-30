@@ -37,6 +37,18 @@ BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
 
 데이터는 기본적으로 `blackcheck-platform/data/comments.json` 파일에 저장됩니다. 운영 환경에서는 `BLACKCHECK_DATA_FILE`로 저장 경로를 바꿀 수 있습니다.
 
+`MYSQL_HOST`를 설정하면 MySQL 모드로 동작합니다. 번호 조회 시 `gangnam_DB.bamcheat_comments`와 `mnms_prod.bamcheat_comments`를 함께 조회하고 최신순으로 합치며, 새 코멘트는 기존 `gangnam_DB`에만 저장합니다. `mnms_prod`에서 온 결과는 조회 전용입니다.
+
+```dotenv
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=blackcheck
+MYSQL_PASSWORD=secret
+BLACKCHECK_AUTHOR_USER_ID=1
+```
+
+두 데이터베이스에서 동일한 테이블을 읽을 수 있는 MySQL 계정 권한이 필요합니다. 데이터베이스나 테이블 이름이 다른 환경에서는 `BLACKCHECK_PRIMARY_DATABASE`, `BLACKCHECK_SECONDARY_DATABASE`, `BLACKCHECK_COMMENTS_TABLE`로 변경할 수 있습니다.
+
 ## 권한 모델
 
 - 회원가입/로그인 없이 입장코드만 입력하면 조회, 코멘트 등록, 추천을 이용할 수 있습니다.
@@ -54,6 +66,13 @@ BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
 | `BLACKCHECK_BUSINESS_TOKEN` | 없음 | API용 기업회원 권한 Bearer 토큰 |
 | `BLACKCHECK_ADMIN_TOKEN` | 없음 | API용 관리자 권한 Bearer 토큰 |
 | `BLACKCHECK_CORS_ORIGIN` | `*` | 외부 프론트엔드에서 API만 호출할 때 허용할 Origin |
+| `MYSQL_HOST` | 없음 | 설정 시 MySQL 이중 DB 조회 모드 활성화 |
+| `MYSQL_PORT` | `3306` | MySQL 포트 |
+| `MYSQL_USER` / `MYSQL_PASSWORD` | 없음 | 두 DB에 접근할 MySQL 인증 정보 |
+| `BLACKCHECK_PRIMARY_DATABASE` | `gangnam_DB` | 조회 및 INSERT 대상 DB |
+| `BLACKCHECK_SECONDARY_DATABASE` | `mnms_prod` | 조회 전용으로 함께 검색할 DB |
+| `BLACKCHECK_COMMENTS_TABLE` | `bamcheat_comments` | 양쪽 DB의 코멘트 테이블명 |
+| `BLACKCHECK_AUTHOR_USER_ID` | `1` | INSERT 시 사용할 기존 `users.id` |
 
 ## 프론트엔드 API 주소 변경
 
