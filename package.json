@@ -8,6 +8,9 @@
     "start": "node server.js",
     "check": "node --check server.js && node --check app.js"
   },
+  "dependencies": {
+    "mysql2": "^3.14.0"
+  },
   "engines": {
     "node": ">=18"
   }

@@ -11,17 +11,21 @@ npm start
 
 기본 실행 주소는 `http://localhost:8000`이며, API는 같은 서버의 `/api/*` 경로로 제공됩니다. 실행할 때 프로젝트 루트의 `.env` 파일을 자동으로 읽으며, 셸에서 직접 지정한 환경 변수는 `.env`보다 우선합니다.
 
-## 입장코드 설정
+## MySQL 설정
 
-입장코드는 서버 환경 변수로 지정합니다.
+코멘트, 추천, 입장코드는 모두 MySQL에 저장됩니다. 먼저 빈 데이터베이스를 만들고 다음 환경 변수를 설정하세요. 테이블은 서버 시작 시 자동 생성됩니다.
 
-```bash
-BLACKCHECK_ACCESS_CODE='원하는입장코드' npm start
+```dotenv
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=blackcheck
+MYSQL_PASSWORD=비밀번호
+MYSQL_DATABASE=gangnam_DB
 ```
 
-환경 변수를 지정하지 않으면 기본 입장코드는 `blackcode`입니다. 프론트엔드는 입장코드를 하드코딩해서 검사하지 않고, 서버의 `/api/blackcheck/access` API로 검증합니다.
+기존 `.env`의 입장코드 `qwerasdf12`, `mastercode`, `password`는 최초 실행 때 `access_codes` 테이블에 SHA-256 해시로 자동 등록되며, 이후 검증도 이 테이블을 조회합니다. 평문 입장코드는 데이터베이스에 저장하지 않습니다.
 
-여러 입장코드를 허용하려면 쉼표로 구분해서 설정할 수 있습니다.
+추가 코드를 최초 등록해야 하는 경우에만 `BLACKCHECK_ACCESS_CODE`를 일시적으로 지정할 수 있습니다. 등록 후에는 환경 변수에서 제거해도 됩니다.
 
 ```dotenv
 BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
@@ -35,7 +39,7 @@ BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
 - `POST /api/bamcheat/comments/:commentId/recommend`
 - `DELETE /api/bamcheat/comments/:commentId`
 
-데이터는 기본적으로 `blackcheck-platform/data/comments.json` 파일에 저장됩니다. 운영 환경에서는 `BLACKCHECK_DATA_FILE`로 저장 경로를 바꿀 수 있습니다.
+데이터는 `comments`, `recommendations`, `access_codes` MySQL 테이블에 저장됩니다.
 
 ## 권한 모델
 
@@ -49,8 +53,12 @@ BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `PORT` | `8000` | 독립 서버 포트 |
-| `BLACKCHECK_ACCESS_CODE` | `blackcode` | 사용자가 입력해야 하는 입장코드(여러 개는 쉼표로 구분) |
-| `BLACKCHECK_DATA_FILE` | `./data/comments.json` | 코멘트/추천 JSON 저장 파일 |
+| `MYSQL_HOST` | 없음 | MySQL 서버 호스트 |
+| `MYSQL_PORT` | `3306` | MySQL 서버 포트 |
+| `MYSQL_USER` | 없음 | MySQL 사용자 |
+| `MYSQL_PASSWORD` | 없음 | MySQL 비밀번호 |
+| `MYSQL_DATABASE` | `gangnam_DB` | 사용할 MySQL 데이터베이스 |
+| `BLACKCHECK_ACCESS_CODE` | 없음 | DB에 추가 등록할 입장코드(여러 개는 쉼표로 구분, 선택 사항) |
 | `BLACKCHECK_BUSINESS_TOKEN` | 없음 | API용 기업회원 권한 Bearer 토큰 |
 | `BLACKCHECK_ADMIN_TOKEN` | 없음 | API용 관리자 권한 Bearer 토큰 |
 | `BLACKCHECK_CORS_ORIGIN` | `*` | 외부 프론트엔드에서 API만 호출할 때 허용할 Origin |
