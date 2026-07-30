@@ -10,8 +10,33 @@ const http = require('http');
 const path = require('path');
 const { URL } = require('url');
 
+function loadEnvFile(filePath = path.join(__dirname, '.env')) {
+  if (!fs.existsSync(filePath)) return;
+
+  const entries = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
+  for (const entry of entries) {
+    const match = entry.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)?\s*$/);
+    if (!match || Object.prototype.hasOwnProperty.call(process.env, match[1])) continue;
+
+    let value = match[2] || '';
+    const quote = value[0];
+    if ((quote === '"' || quote === "'") && value.endsWith(quote)) {
+      value = value.slice(1, -1);
+      if (quote === '"') value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
+    } else {
+      value = value.replace(/\s+#.*$/, '').trim();
+    }
+    process.env[match[1]] = value;
+  }
+}
+
+loadEnvFile();
+
 const PORT = Number(process.env.PORT || 8000);
-const ACCESS_CODE = String(process.env.BLACKCHECK_ACCESS_CODE || 'blackcode');
+const ACCESS_CODES = String(process.env.BLACKCHECK_ACCESS_CODE || 'blackcode')
+  .split(',')
+  .map((code) => code.trim())
+  .filter(Boolean);
 const DATA_FILE = path.resolve(process.env.BLACKCHECK_DATA_FILE || path.join(__dirname, 'data', 'comments.json'));
 const BUSINESS_TOKEN = String(process.env.BLACKCHECK_BUSINESS_TOKEN || '').trim();
 const ADMIN_TOKEN = String(process.env.BLACKCHECK_ADMIN_TOKEN || '').trim();
@@ -110,7 +135,7 @@ function resolveViewer(req, data = {}) {
   if (ADMIN_TOKEN && token === ADMIN_TOKEN) return { id: 'admin', role: 'ADMIN', authenticated: true, privileged: true };
   if (BUSINESS_TOKEN && token === BUSINESS_TOKEN) return { id: 'business', role: 'BUSINESS', authenticated: true, privileged: true };
   const accessCode = String(data.accessCode || '').trim();
-  return { id: accessCode ? `code:${crypto.createHash('sha256').update(accessCode).digest('hex').slice(0, 16)}` : 'guest', role: 'GUEST', authenticated: false, privileged: accessCode === ACCESS_CODE };
+  return { id: accessCode ? `code:${crypto.createHash('sha256').update(accessCode).digest('hex').slice(0, 16)}` : 'guest', role: 'GUEST', authenticated: false, privileged: ACCESS_CODES.includes(accessCode) };
 }
 
 function assertCanAccess(res, viewer) {
