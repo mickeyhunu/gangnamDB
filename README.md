@@ -35,7 +35,9 @@ BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
 - `POST /api/bamcheat/comments/:commentId/recommend`
 - `DELETE /api/bamcheat/comments/:commentId`
 
-입장코드, 코멘트, 추천 데이터는 모두 MySQL에 저장됩니다. 서버 시작 시 데이터베이스와 `blackcheck_access_codes`, `bamcheat_comments`, `bamcheat_recommendations` 테이블이 없으면 자동으로 생성합니다. 이전 버전의 `code_hash` 컬럼만 있는 DB에는 `access_code` 컬럼을 자동으로 추가하며, 기존 해시는 원문으로 되돌릴 수 없으므로 사용할 코드를 `access_code`에 다시 등록해야 합니다. DB 접속이나 초기화에 실패하면 파일 저장 방식으로 대체하지 않고 서버 시작을 중단합니다.
+입장코드, 새 코멘트, 추천 데이터는 쓰기 DB(`MYSQL_DATABASE`, 기본값 `gangnam_DB`)에 저장됩니다. 번호를 조회할 때는 쓰기 DB의 `bamcheat_comments`와 조회 전용 DB(`READONLY_MYSQL_DATABASE`, 기본값 `mnms_prod`)의 `bamcheat_comments` 결과를 합쳐 최신순으로 반환합니다. 조회 전용 DB의 코멘트는 추천하거나 이 프로젝트에서 수정·삭제하지 않습니다.
+
+서버 시작 시 쓰기 데이터베이스와 `blackcheck_access_codes`, `bamcheat_comments`, `bamcheat_recommendations` 테이블이 없으면 자동으로 생성합니다. 조회 전용 DB나 테이블은 자동 생성하지 않으므로 미리 존재해야 합니다. 이전 버전의 `code_hash` 컬럼만 있는 DB에는 `access_code` 컬럼을 자동으로 추가하며, 기존 해시는 원문으로 되돌릴 수 없으므로 사용할 코드를 `access_code`에 다시 등록해야 합니다. DB 접속이나 초기화에 실패하면 파일 저장 방식으로 대체하지 않고 서버 시작을 중단합니다.
 
 ```dotenv
 MYSQL_HOST=
@@ -43,10 +45,11 @@ MYSQL_PORT=3306
 MYSQL_USER=
 MYSQL_PASSWORD=
 MYSQL_DATABASE=gangnam_DB
+READONLY_MYSQL_DATABASE=mnms_prod
 BLACKCHECK_ACCESS_CODE=qwerasdf12,mastercode,password
 ```
 
-MySQL 계정에는 데이터베이스와 테이블을 생성하고 읽고 쓸 권한이 필요합니다. 운영을 시작한 뒤 입장코드를 추가하려면 `BLACKCHECK_ACCESS_CODE`에 코드를 추가하고 서버를 재시작하면 기존 코드는 보존한 채 새 코드만 등록됩니다.
+MySQL 계정에는 쓰기 DB의 데이터베이스와 테이블을 생성하고 읽고 쓸 권한 및 조회 전용 DB의 `bamcheat_comments`를 읽을 권한이 필요합니다. 운영을 시작한 뒤 입장코드를 추가하려면 `BLACKCHECK_ACCESS_CODE`에 코드를 추가하고 서버를 재시작하면 기존 코드는 보존한 채 새 코드만 등록됩니다.
 
 ## 권한 모델
 
@@ -68,6 +71,7 @@ MySQL 계정에는 데이터베이스와 테이블을 생성하고 읽고 쓸 �
 | `MYSQL_PORT` | `3306` | MySQL 포트 |
 | `MYSQL_USER` / `MYSQL_PASSWORD` | 없음 | MySQL 인증 정보 |
 | `MYSQL_DATABASE` | `gangnam_DB` | 자동 초기화하고 사용할 DB |
+| `READONLY_MYSQL_DATABASE` | `mnms_prod` | 검색 결과에 함께 포함할 조회 전용 DB |
 
 ## 프론트엔드 API 주소 변경
 

@@ -42,12 +42,14 @@ const ADMIN_TOKEN = String(process.env.BLACKCHECK_ADMIN_TOKEN || '').trim();
 const MAX_COMMENT_LENGTH = 1000;
 const MYSQL_HOST = String(process.env.MYSQL_HOST || '').trim();
 const MYSQL_DATABASE = String(process.env.MYSQL_DATABASE || 'gangnam_DB').trim();
+const READONLY_MYSQL_DATABASE = String(process.env.READONLY_MYSQL_DATABASE || 'mnms_prod').trim();
 
 function assertSqlIdentifier(value, name) {
   if (!/^[A-Za-z0-9_]+$/.test(value)) throw new Error(`${name} 환경 변수에 올바르지 않은 SQL 식별자가 있습니다.`);
 }
 
 assertSqlIdentifier(MYSQL_DATABASE, 'MYSQL_DATABASE');
+assertSqlIdentifier(READONLY_MYSQL_DATABASE, 'READONLY_MYSQL_DATABASE');
 
 const dbPool = mysql.createPool({
   host: MYSQL_HOST,
@@ -201,7 +203,7 @@ function assertCanWrite(res, viewer) {
   return false;
 }
 
-function mapComment(comment) {
+function mapComment(comment, sourceDatabase = MYSQL_DATABASE, readOnly = false) {
   return {
     id: comment.id,
     phoneNumber: comment.phoneNumber,
@@ -212,8 +214,8 @@ function mapComment(comment) {
     createdAt: comment.createdAt,
     recommendationCount: Number(comment.recommendationCount || 0),
     isRecommendedByMe: Boolean(comment.isRecommendedByMe),
-    sourceDatabase: MYSQL_DATABASE,
-    readOnly: false
+    sourceDatabase,
+    readOnly
   };
 }
 
@@ -244,6 +246,28 @@ async function readDatabaseComments(phoneNumber, viewerId) {
   return rows.map(databaseComment);
 }
 
+async function readReadonlyDatabaseComments(phoneNumber) {
+  const sql = `SELECT id, phone_number, author_user_id, region, district, comment, created_at,
+    0 AS recommendation_count, 0 AS is_recommended_by_me
+    FROM \`${READONLY_MYSQL_DATABASE}\`.bamcheat_comments
+    WHERE phone_number = ?
+    ORDER BY created_at DESC`;
+  const [rows] = await dbPool.execute(sql, [phoneNumber]);
+  return rows.map(databaseComment);
+}
+
+async function readAllDatabaseComments(phoneNumber, viewerId) {
+  const [writableComments, readonlyComments] = await Promise.all([
+    readDatabaseComments(phoneNumber, viewerId),
+    readReadonlyDatabaseComments(phoneNumber)
+  ]);
+
+  return [
+    ...writableComments.map((comment) => mapComment(comment)),
+    ...readonlyComments.map((comment) => mapComment(comment, READONLY_MYSQL_DATABASE, true))
+  ].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+}
+
 async function createDatabaseComment({ phoneNumber, authorUserId, region, district, comment }) {
   const sql = `INSERT INTO \`${MYSQL_DATABASE}\`.bamcheat_comments (phone_number, author_user_id, region, district, comment) VALUES (?, ?, ?, ?, ?)`;
   const [result] = await dbPool.execute(sql, [phoneNumber, authorUserId, region, district, comment]);
@@ -271,7 +295,7 @@ async function handleApi(req, res, url) {
       sendError(res, 400, '검색할 번호를 7~11자리 숫자로 입력해주세요.');
       return;
     }
-    const comments = (await readDatabaseComments(phoneNumber, viewer.id)).map(mapComment);
+    const comments = await readAllDatabaseComments(phoneNumber, viewer.id);
     sendJson(res, 200, { phoneNumber, comments, hasComments: comments.length > 0 });
     return;
   }
