@@ -1,14 +1,15 @@
 /**
  * Standalone Blackcheck API + static server.
  *
- * This server intentionally has no external dependencies so the folder can be
- * copied out of the main repository and run with `node server.js`.
+ * The folder can be copied out of the main repository and run after installing
+ * its npm dependencies.
  */
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { URL } = require('url');
+const mysql = require('mysql2/promise');
 
 function loadEnvFile(filePath = path.join(__dirname, '.env')) {
   if (!fs.existsSync(filePath)) return;
@@ -41,6 +42,29 @@ const DATA_FILE = path.resolve(process.env.BLACKCHECK_DATA_FILE || path.join(__d
 const BUSINESS_TOKEN = String(process.env.BLACKCHECK_BUSINESS_TOKEN || '').trim();
 const ADMIN_TOKEN = String(process.env.BLACKCHECK_ADMIN_TOKEN || '').trim();
 const MAX_COMMENT_LENGTH = 1000;
+const MYSQL_HOST = String(process.env.MYSQL_HOST || '').trim();
+const PRIMARY_DATABASE = process.env.BLACKCHECK_PRIMARY_DATABASE || 'gangnam_DB';
+const SECONDARY_DATABASE = process.env.BLACKCHECK_SECONDARY_DATABASE || 'mnms_prod';
+const COMMENTS_TABLE = process.env.BLACKCHECK_COMMENTS_TABLE || 'bamcheat_comments';
+const DEFAULT_AUTHOR_USER_ID = Number(process.env.BLACKCHECK_AUTHOR_USER_ID || 1);
+
+function assertSqlIdentifier(value, name) {
+  if (!/^[A-Za-z0-9_]+$/.test(value)) throw new Error(`${name} 환경 변수에 올바르지 않은 SQL 식별자가 있습니다.`);
+}
+
+assertSqlIdentifier(PRIMARY_DATABASE, 'BLACKCHECK_PRIMARY_DATABASE');
+assertSqlIdentifier(SECONDARY_DATABASE, 'BLACKCHECK_SECONDARY_DATABASE');
+assertSqlIdentifier(COMMENTS_TABLE, 'BLACKCHECK_COMMENTS_TABLE');
+
+const dbPool = MYSQL_HOST ? mysql.createPool({
+  host: MYSQL_HOST,
+  port: Number(process.env.MYSQL_PORT || 3306),
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  waitForConnections: true,
+  connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
+  charset: 'utf8mb4'
+}) : null;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -162,8 +186,42 @@ function mapComment(comment, store, viewer) {
     comment: comment.comment,
     createdAt: comment.createdAt,
     recommendationCount,
-    isRecommendedByMe
+    isRecommendedByMe,
+    sourceDatabase: comment.sourceDatabase,
+    readOnly: Boolean(comment.readOnly)
   };
+}
+
+function databaseComment(row, database) {
+  const id = `${database}:${row.id}`;
+  return {
+    id,
+    phoneNumber: row.phone_number,
+    authorUserId: row.author_user_id,
+    region: row.region,
+    district: row.district,
+    comment: row.comment,
+    createdAt: row.created_at,
+    sourceDatabase: database,
+    readOnly: database !== PRIMARY_DATABASE
+  };
+}
+
+async function readDatabaseComments(phoneNumber) {
+  const results = await Promise.all([PRIMARY_DATABASE, SECONDARY_DATABASE].map(async (database) => {
+    const sql = `SELECT id, phone_number, author_user_id, region, district, comment, created_at FROM \`${database}\`.\`${COMMENTS_TABLE}\` WHERE phone_number = ?`;
+    const [rows] = await dbPool.execute(sql, [phoneNumber]);
+    return rows.map((row) => databaseComment(row, database));
+  }));
+  return results.flat();
+}
+
+async function createDatabaseComment({ phoneNumber, region, district, comment }) {
+  if (!Number.isSafeInteger(DEFAULT_AUTHOR_USER_ID) || DEFAULT_AUTHOR_USER_ID < 1) throw new Error('BLACKCHECK_AUTHOR_USER_ID를 유효한 사용자 ID로 설정해주세요.');
+  const sql = `INSERT INTO \`${PRIMARY_DATABASE}\`.\`${COMMENTS_TABLE}\` (phone_number, author_user_id, region, district, comment) VALUES (?, ?, ?, ?, ?)`;
+  const [result] = await dbPool.execute(sql, [phoneNumber, DEFAULT_AUTHOR_USER_ID, region, district, comment]);
+  const [rows] = await dbPool.execute(`SELECT id, phone_number, author_user_id, region, district, comment, created_at FROM \`${PRIMARY_DATABASE}\`.\`${COMMENTS_TABLE}\` WHERE id = ?`, [result.insertId]);
+  return databaseComment(rows[0], PRIMARY_DATABASE);
 }
 
 async function handleApi(req, res, url) {
@@ -187,8 +245,8 @@ async function handleApi(req, res, url) {
       return;
     }
     const store = readStore();
-    const comments = store.comments
-      .filter((comment) => comment.phoneNumber === phoneNumber)
+    const sourceComments = dbPool ? await readDatabaseComments(phoneNumber) : store.comments.filter((comment) => comment.phoneNumber === phoneNumber);
+    const comments = sourceComments
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .map((comment) => mapComment(comment, store, viewer));
     sendJson(res, 200, { phoneNumber, comments, hasComments: comments.length > 0 });
@@ -207,7 +265,7 @@ async function handleApi(req, res, url) {
     if (!commentText) return sendError(res, 400, '코멘트를 입력해주세요.');
 
     const store = readStore();
-    const createdComment = {
+    const createdComment = dbPool ? await createDatabaseComment({ phoneNumber, region, district, comment: commentText }) : {
       id: crypto.randomUUID(),
       phoneNumber,
       authorUserId: viewer.id,
@@ -216,8 +274,10 @@ async function handleApi(req, res, url) {
       comment: commentText,
       createdAt: new Date().toISOString()
     };
-    store.comments.push(createdComment);
-    writeStore(store);
+    if (!dbPool) {
+      store.comments.push(createdComment);
+      writeStore(store);
+    }
     sendJson(res, 201, { comment: mapComment(createdComment, store, viewer) });
     return;
   }
@@ -226,8 +286,9 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && recommendMatch) {
     if (!assertCanWrite(res, viewer)) return;
     const commentId = decodeURIComponent(recommendMatch[1]);
+    if (commentId.startsWith(`${SECONDARY_DATABASE}:`)) return sendError(res, 403, '외부 데이터베이스의 코멘트는 조회만 가능합니다.');
     const store = readStore();
-    if (!store.comments.some((comment) => comment.id === commentId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
+    if (!dbPool && !store.comments.some((comment) => comment.id === commentId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
     const existingIndex = store.recommendations.findIndex((item) => item.commentId === commentId && item.userId === viewer.id);
     let isRecommendedByMe = true;
     if (existingIndex >= 0) {
@@ -246,6 +307,19 @@ async function handleApi(req, res, url) {
   if (req.method === 'DELETE' && deleteMatch) {
     if (viewer.role !== 'ADMIN') return sendError(res, 403, '관리자만 코멘트를 삭제할 수 있습니다.');
     const commentId = decodeURIComponent(deleteMatch[1]);
+    if (dbPool) {
+      const prefix = `${PRIMARY_DATABASE}:`;
+      if (!commentId.startsWith(prefix)) return sendError(res, 403, '외부 데이터베이스의 코멘트는 삭제할 수 없습니다.');
+      const numericId = commentId.slice(prefix.length);
+      if (!/^\d+$/.test(numericId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
+      const [result] = await dbPool.execute(`DELETE FROM \`${PRIMARY_DATABASE}\`.\`${COMMENTS_TABLE}\` WHERE id = ?`, [numericId]);
+      if (!result.affectedRows) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
+      const store = readStore();
+      store.recommendations = store.recommendations.filter((item) => item.commentId !== commentId);
+      writeStore(store);
+      sendJson(res, 200, { success: true });
+      return;
+    }
     const store = readStore();
     const beforeCount = store.comments.length;
     store.comments = store.comments.filter((comment) => comment.id !== commentId);
