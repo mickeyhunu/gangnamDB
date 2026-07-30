@@ -171,7 +171,7 @@ function getRequestBody(req) {
 }
 
 function normalizePhoneNumber(value) {
-  return String(value || '').replace(/[^0-9]/g, '').slice(0, 11).trim();
+  return String(value || '').replace(/[^0-9]/g, '').slice(0, 11);
 }
 
 function sanitizeComment(value) {
@@ -180,24 +180,18 @@ function sanitizeComment(value) {
 
 async function resolveViewer(req, data = {}) {
   const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  if (ADMIN_TOKEN && token === ADMIN_TOKEN) return { id: 'admin', role: 'ADMIN', authenticated: true, privileged: true };
-  if (BUSINESS_TOKEN && token === BUSINESS_TOKEN) return { id: 'business', role: 'BUSINESS', authenticated: true, privileged: true };
+  if (ADMIN_TOKEN && token === ADMIN_TOKEN) return { id: 'admin', role: 'ADMIN', privileged: true };
+  if (BUSINESS_TOKEN && token === BUSINESS_TOKEN) return { id: 'business', role: 'BUSINESS', privileged: true };
   const accessCode = String(data.accessCode || '').trim();
   const [rows] = accessCode
     ? await dbPool.execute(`SELECT id FROM \`${MYSQL_DATABASE}\`.blackcheck_access_codes WHERE access_code = ? AND enabled = TRUE LIMIT 1`, [accessCode])
     : [[]];
-  return { id: rows.length ? `code:${rows[0].id}` : 'guest', role: 'GUEST', authenticated: false, privileged: rows.length > 0 };
+  return { id: rows.length ? `code:${rows[0].id}` : 'guest', role: 'GUEST', privileged: rows.length > 0 };
 }
 
 function assertCanAccess(res, viewer) {
   if (viewer.privileged) return true;
   sendError(res, 403, '콜체크 접근 코드가 필요합니다.');
-  return false;
-}
-
-function assertCanWrite(res, viewer) {
-  if (viewer.privileged) return true;
-  sendError(res, 403, '유효한 입장코드가 필요합니다.');
   return false;
 }
 
@@ -253,7 +247,7 @@ async function createDatabaseComment({ phoneNumber, authorUserId, region, distri
 
 async function handleApi(req, res, url) {
   const queryData = Object.fromEntries(url.searchParams.entries());
-  const bodyData = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? await getRequestBody(req) : {};
+  const bodyData = ['POST', 'DELETE'].includes(req.method) ? await getRequestBody(req) : {};
   const input = { ...queryData, ...bodyData };
   const viewer = await resolveViewer(req, input);
 
@@ -277,7 +271,6 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/bamcheat/comments') {
-    if (!assertCanWrite(res, viewer)) return;
     const phoneNumber = normalizePhoneNumber(input.phoneNumber);
     const region = String(input.region || '').trim().slice(0, 50);
     const district = String(input.district || '').trim().slice(0, 50);
@@ -294,7 +287,6 @@ async function handleApi(req, res, url) {
 
   const recommendMatch = url.pathname.match(/^\/api\/bamcheat\/comments\/([^/]+)\/recommend$/);
   if (req.method === 'POST' && recommendMatch) {
-    if (!assertCanWrite(res, viewer)) return;
     const commentId = decodeURIComponent(recommendMatch[1]);
     if (!/^\d+$/.test(commentId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
     const [comments] = await dbPool.execute(`SELECT id FROM \`${MYSQL_DATABASE}\`.bamcheat_comments WHERE id = ?`, [commentId]);
@@ -326,7 +318,7 @@ async function handleApi(req, res, url) {
   sendError(res, 404, 'API 경로를 찾을 수 없습니다.');
 }
 
-function serveStatic(req, res, url) {
+function serveStatic(res, url) {
   const requestedPath = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
   const filePath = path.normalize(path.join(__dirname, requestedPath));
   if (!filePath.startsWith(__dirname)) {
@@ -361,7 +353,7 @@ const server = http.createServer(async (req, res) => {
       await handleApi(req, res, url);
       return;
     }
-    serveStatic(req, res, url);
+    serveStatic(res, url);
   } catch (error) {
     sendError(res, 500, error.message || '서버 오류가 발생했습니다.');
   }
