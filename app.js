@@ -25,7 +25,7 @@ const REGION_DISTRICT_MAP = {
 };
 
 const $ = (id) => document.getElementById(id);
-function normalizePhone(value) { return String(value || '').replace(/[^0-9]/g, '').slice(0, 11).trim(); }
+function normalizePhone(value) { return String(value || '').replace(/[^0-9]/g, '').slice(0, 11); }
 function formatDate(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`; }
 function formatPhone(value) { const phone = normalizePhone(value); if (phone.length === 11) return `${phone.slice(0, 3)}-${phone.slice(3, 7)}-${phone.slice(7)}`; if (phone.length === 10) return `${phone.slice(0, 3)}-${phone.slice(3, 6)}-${phone.slice(6)}`; return phone; }
 function maskPart(part) { if (!part) return part; const index = Math.floor(Math.random() * part.length); return `${part.slice(0, index)}*${part.slice(index + 1)}`; }

@@ -41,9 +41,8 @@ h2 { font-size: 1.2rem; margin: 0 0 8px; }
 .comment-header { align-items: center; margin-bottom: 8px; }
 .comment-meta { color: var(--muted); font-size: 0.86rem; }
 .comment-body { flex: 1 1 auto; margin: 0; min-width: 0; white-space: pre-wrap; }
-.comment-recommend-btn, .comment-delete-btn { background: #fff; border: 1px solid rgba(108, 46, 150, 0.24); border-radius: 999px; color: var(--accent); cursor: pointer; flex-shrink: 0; font-size: 0.85rem; font-weight: 900; padding: 6px 10px; }
+.comment-recommend-btn { background: #fff; border: 1px solid rgba(108, 46, 150, 0.24); border-radius: 999px; color: var(--accent); cursor: pointer; flex-shrink: 0; font-size: 0.85rem; font-weight: 900; padding: 6px 10px; }
 .comment-recommend-btn.active, .comment-recommend-btn:hover { background: rgba(108, 46, 150, 0.08); border-color: rgba(108, 46, 150, 0.42); }
-.comment-delete-btn { border-color: rgba(220, 38, 38, 0.24); color: var(--primary); }
 .comment-form { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
 .form-label { font-weight: 900; }
 .policy-notice { background: rgba(250, 204, 21, 0.16); border-radius: 12px; color: #854d0e; font-size: 0.88rem; font-weight: 800; line-height: 1.5; margin: 0; padding: 10px 12px; }
