@@ -13,15 +13,15 @@ npm start
 
 ## 입장코드 설정
 
-입장코드는 서버 환경 변수로 지정합니다.
+입장 가능 여부는 `gangnam_DB.blackcheck_access_codes` 테이블에 저장된 활성 코드로만 판정합니다. 해시나 별도의 복호화 과정 없이 사용할 입장코드 원문을 바로 등록합니다.
 
-```bash
-BLACKCHECK_ACCESS_CODE='원하는입장코드' npm start
+```sql
+INSERT INTO gangnam_DB.blackcheck_access_codes (access_code) VALUES ('원하는입장코드');
 ```
 
-프론트엔드는 입장코드를 하드코딩해서 검사하지 않고, 서버의 `/api/blackcheck/access` API로 검증합니다. 서버가 시작될 때 `BLACKCHECK_ACCESS_CODE` 값은 SHA-256 해시로 DB에 등록되며, 이후 검증도 DB에 저장된 코드를 기준으로 합니다. 기존 코드는 환경 변수에서 제거해도 DB에 유지되고, 비활성화하려면 `blackcheck_access_codes.enabled`를 변경하면 됩니다.
+프론트엔드는 입장코드를 하드코딩해서 검사하지 않고 서버의 `/api/blackcheck/access` API로 검증합니다. 브라우저에 저장된 코드도 페이지를 다시 열 때 DB에서 재검증하므로, `enabled`를 `FALSE`로 바꾸면 기존 사용자도 더 이상 입장할 수 없습니다.
 
-여러 입장코드를 허용하려면 쉼표로 구분해서 설정할 수 있습니다.
+초기 배포 시에만 환경 변수로 코드를 등록하려면 쉼표로 구분한 `BLACKCHECK_ACCESS_CODE`를 사용할 수 있습니다. 서버가 각 코드를 같은 DB 테이블에 `INSERT IGNORE`하며, 실제 입장 검증은 항상 DB를 조회합니다.
 
 ```dotenv
 BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
@@ -35,7 +35,7 @@ BLACKCHECK_ACCESS_CODE=첫번째코드,두번째코드
 - `POST /api/bamcheat/comments/:commentId/recommend`
 - `DELETE /api/bamcheat/comments/:commentId`
 
-입장코드, 코멘트, 추천 데이터는 모두 MySQL에 저장됩니다. 서버 시작 시 데이터베이스와 `blackcheck_access_codes`, `bamcheat_comments`, `bamcheat_recommendations` 테이블이 없으면 자동으로 생성합니다. DB 접속이나 초기화에 실패하면 파일 저장 방식으로 대체하지 않고 서버 시작을 중단합니다.
+입장코드, 코멘트, 추천 데이터는 모두 MySQL에 저장됩니다. 서버 시작 시 데이터베이스와 `blackcheck_access_codes`, `bamcheat_comments`, `bamcheat_recommendations` 테이블이 없으면 자동으로 생성합니다. 이전 버전의 `code_hash` 컬럼만 있는 DB에는 `access_code` 컬럼을 자동으로 추가하며, 기존 해시는 원문으로 되돌릴 수 없으므로 사용할 코드를 `access_code`에 다시 등록해야 합니다. DB 접속이나 초기화에 실패하면 파일 저장 방식으로 대체하지 않고 서버 시작을 중단합니다.
 
 ```dotenv
 MYSQL_HOST=

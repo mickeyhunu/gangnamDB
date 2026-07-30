@@ -4,7 +4,6 @@
  * The folder can be copied out of the main repository and run after installing
  * its npm dependencies.
  */
-const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -74,20 +73,31 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-function hashAccessCode(code) {
-  return crypto.createHash('sha256').update(code).digest('hex');
-}
-
 async function initializeDatabase() {
   if (!MYSQL_HOST) throw new Error('MYSQL_HOST 환경 변수를 설정해주세요.');
 
   await dbPool.query(`CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
   await dbPool.query(`CREATE TABLE IF NOT EXISTS \`${MYSQL_DATABASE}\`.blackcheck_access_codes (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    code_hash CHAR(64) NOT NULL UNIQUE,
+    access_code VARCHAR(255) NOT NULL UNIQUE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     enabled BOOLEAN NOT NULL DEFAULT TRUE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+  // Older releases stored only a one-way hash. Keep that column for schema
+  // compatibility, but stop using it and add the plain access-code column.
+  const [accessCodeColumns] = await dbPool.execute(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'blackcheck_access_codes'`,
+    [MYSQL_DATABASE]
+  );
+  const accessCodeColumnNames = new Set(accessCodeColumns.map((column) => column.COLUMN_NAME));
+  if (!accessCodeColumnNames.has('access_code')) {
+    await dbPool.query(`ALTER TABLE \`${MYSQL_DATABASE}\`.blackcheck_access_codes ADD COLUMN access_code VARCHAR(255) NULL UNIQUE AFTER id`);
+  }
+  if (accessCodeColumnNames.has('code_hash')) {
+    await dbPool.query(`ALTER TABLE \`${MYSQL_DATABASE}\`.blackcheck_access_codes MODIFY COLUMN code_hash CHAR(64) NULL`);
+  }
   await dbPool.query(`CREATE TABLE IF NOT EXISTS \`${MYSQL_DATABASE}\`.bamcheat_comments (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     phone_number VARCHAR(11) NOT NULL,
@@ -109,8 +119,8 @@ async function initializeDatabase() {
 
   for (const accessCode of SEED_ACCESS_CODES) {
     await dbPool.execute(
-      `INSERT IGNORE INTO \`${MYSQL_DATABASE}\`.blackcheck_access_codes (code_hash) VALUES (?)`,
-      [hashAccessCode(accessCode)]
+      `INSERT IGNORE INTO \`${MYSQL_DATABASE}\`.blackcheck_access_codes (access_code) VALUES (?)`,
+      [accessCode]
     );
   }
 }
@@ -173,11 +183,10 @@ async function resolveViewer(req, data = {}) {
   if (ADMIN_TOKEN && token === ADMIN_TOKEN) return { id: 'admin', role: 'ADMIN', authenticated: true, privileged: true };
   if (BUSINESS_TOKEN && token === BUSINESS_TOKEN) return { id: 'business', role: 'BUSINESS', authenticated: true, privileged: true };
   const accessCode = String(data.accessCode || '').trim();
-  const codeHash = accessCode ? hashAccessCode(accessCode) : '';
-  const [rows] = codeHash
-    ? await dbPool.execute(`SELECT id FROM \`${MYSQL_DATABASE}\`.blackcheck_access_codes WHERE code_hash = ? AND enabled = TRUE LIMIT 1`, [codeHash])
+  const [rows] = accessCode
+    ? await dbPool.execute(`SELECT id FROM \`${MYSQL_DATABASE}\`.blackcheck_access_codes WHERE access_code = ? AND enabled = TRUE LIMIT 1`, [accessCode])
     : [[]];
-  return { id: codeHash ? `code:${codeHash.slice(0, 16)}` : 'guest', role: 'GUEST', authenticated: false, privileged: rows.length > 0 };
+  return { id: rows.length ? `code:${rows[0].id}` : 'guest', role: 'GUEST', authenticated: false, privileged: rows.length > 0 };
 }
 
 function assertCanAccess(res, viewer) {
