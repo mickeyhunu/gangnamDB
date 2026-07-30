@@ -123,7 +123,19 @@ async function handleCommentClick(event) {
   catch (error) { $('main-status').textContent = error.message; }
 }
 
-function init() {
+async function restoreAccessCode() {
+  if (!accessCode) return;
+
+  try {
+    await request('POST', '/blackcheck/access', { accessCode });
+  } catch (_error) {
+    accessCode = '';
+    sessionStorage.removeItem('blackcheck_access_code');
+    $('access-status').textContent = '저장된 입장코드가 만료되었거나 비활성화되었습니다. 다시 입력해주세요.';
+  }
+}
+
+async function init() {
   Object.keys(REGION_DISTRICT_MAP).forEach((region) => $('comment-region').append(new Option(region, region)));
   $('comment-region').value = '서울';
   updateDistricts();
@@ -135,6 +147,7 @@ function init() {
   $('comment-region').addEventListener('change', updateDistricts);
   $('comment-form').addEventListener('submit', submitComment);
   $('comment-list').addEventListener('click', handleCommentClick);
+  await restoreAccessCode();
   updateAccessView();
   renderComments([], '');
 }
