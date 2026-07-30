@@ -75,7 +75,8 @@ function renderComments(comments, phone) {
   comments.forEach((item) => {
     const li = document.createElement('li');
     li.className = 'comment-item';
-    li.innerHTML = `<div class="comment-header"><div class="comment-meta">${areaText(item) ? `[${areaText(item)}] ` : ''}${formatDate(item.createdAt)}</div></div><div class="comment-content"><p class="comment-body"></p><button class="comment-recommend-btn${item.isRecommendedByMe ? ' active' : ''}" type="button" data-comment-id="${item.id}"${item.readOnly ? ' disabled title="외부 DB 코멘트는 조회 전용입니다"' : ''}>👍 ${Number(item.recommendationCount || 0)}</button></div>`;
+    const recommendationButton = item.readOnly ? '' : `<button class="comment-recommend-btn${item.isRecommendedByMe ? ' active' : ''}" type="button" data-comment-id="${item.id}">👍 ${Number(item.recommendationCount || 0)}</button>`;
+    li.innerHTML = `<div class="comment-header"><div class="comment-meta">${areaText(item) ? `[${areaText(item)}] ` : ''}${formatDate(item.createdAt)}</div></div><div class="comment-content"><p class="comment-body"></p>${recommendationButton}</div>`;
     li.querySelector('.comment-body').textContent = cleanComment(item.comment);
     $('comment-list').append(li);
   });
