@@ -34,29 +34,23 @@ function loadEnvFile(filePath = path.join(__dirname, '.env')) {
 loadEnvFile();
 
 const PORT = Number(process.env.PORT || 8000);
-const ACCESS_CODES = String(process.env.BLACKCHECK_ACCESS_CODE || 'blackcode')
+const SEED_ACCESS_CODES = String(process.env.BLACKCHECK_ACCESS_CODE || '')
   .split(',')
   .map((code) => code.trim())
   .filter(Boolean);
-const DATA_FILE = path.resolve(process.env.BLACKCHECK_DATA_FILE || path.join(__dirname, 'data', 'comments.json'));
 const BUSINESS_TOKEN = String(process.env.BLACKCHECK_BUSINESS_TOKEN || '').trim();
 const ADMIN_TOKEN = String(process.env.BLACKCHECK_ADMIN_TOKEN || '').trim();
 const MAX_COMMENT_LENGTH = 1000;
 const MYSQL_HOST = String(process.env.MYSQL_HOST || '').trim();
-const PRIMARY_DATABASE = process.env.BLACKCHECK_PRIMARY_DATABASE || 'gangnam_DB';
-const SECONDARY_DATABASE = process.env.BLACKCHECK_SECONDARY_DATABASE || 'mnms_prod';
-const COMMENTS_TABLE = process.env.BLACKCHECK_COMMENTS_TABLE || 'bamcheat_comments';
-const DEFAULT_AUTHOR_USER_ID = Number(process.env.BLACKCHECK_AUTHOR_USER_ID || 1);
+const MYSQL_DATABASE = String(process.env.MYSQL_DATABASE || 'gangnam_DB').trim();
 
 function assertSqlIdentifier(value, name) {
   if (!/^[A-Za-z0-9_]+$/.test(value)) throw new Error(`${name} 환경 변수에 올바르지 않은 SQL 식별자가 있습니다.`);
 }
 
-assertSqlIdentifier(PRIMARY_DATABASE, 'BLACKCHECK_PRIMARY_DATABASE');
-assertSqlIdentifier(SECONDARY_DATABASE, 'BLACKCHECK_SECONDARY_DATABASE');
-assertSqlIdentifier(COMMENTS_TABLE, 'BLACKCHECK_COMMENTS_TABLE');
+assertSqlIdentifier(MYSQL_DATABASE, 'MYSQL_DATABASE');
 
-const dbPool = MYSQL_HOST ? mysql.createPool({
+const dbPool = mysql.createPool({
   host: MYSQL_HOST,
   port: Number(process.env.MYSQL_PORT || 3306),
   user: process.env.MYSQL_USER,
@@ -64,7 +58,7 @@ const dbPool = MYSQL_HOST ? mysql.createPool({
   waitForConnections: true,
   connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
   charset: 'utf8mb4'
-}) : null;
+});
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -80,25 +74,45 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-function ensureDataFile() {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ comments: [], recommendations: [] }, null, 2));
+function hashAccessCode(code) {
+  return crypto.createHash('sha256').update(code).digest('hex');
+}
+
+async function initializeDatabase() {
+  if (!MYSQL_HOST) throw new Error('MYSQL_HOST 환경 변수를 설정해주세요.');
+
+  await dbPool.query(`CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  await dbPool.query(`CREATE TABLE IF NOT EXISTS \`${MYSQL_DATABASE}\`.blackcheck_access_codes (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    code_hash CHAR(64) NOT NULL UNIQUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await dbPool.query(`CREATE TABLE IF NOT EXISTS \`${MYSQL_DATABASE}\`.bamcheat_comments (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    phone_number VARCHAR(11) NOT NULL,
+    author_user_id VARCHAR(80) NOT NULL,
+    region VARCHAR(50) NOT NULL,
+    district VARCHAR(50) NOT NULL,
+    comment VARCHAR(1000) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_comments_phone_created (phone_number, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await dbPool.query(`CREATE TABLE IF NOT EXISTS \`${MYSQL_DATABASE}\`.bamcheat_recommendations (
+    comment_id BIGINT UNSIGNED NOT NULL,
+    user_id VARCHAR(80) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (comment_id, user_id),
+    CONSTRAINT fk_recommendation_comment FOREIGN KEY (comment_id)
+      REFERENCES bamcheat_comments(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+  for (const accessCode of SEED_ACCESS_CODES) {
+    await dbPool.execute(
+      `INSERT IGNORE INTO \`${MYSQL_DATABASE}\`.blackcheck_access_codes (code_hash) VALUES (?)`,
+      [hashAccessCode(accessCode)]
+    );
   }
-}
-
-function readStore() {
-  ensureDataFile();
-  const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  return {
-    comments: Array.isArray(parsed.comments) ? parsed.comments : [],
-    recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : []
-  };
-}
-
-function writeStore(store) {
-  ensureDataFile();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
 }
 
 function getCorsHeaders() {
@@ -154,12 +168,16 @@ function sanitizeComment(value) {
   return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s{3,}/g, '  ').trim().slice(0, MAX_COMMENT_LENGTH);
 }
 
-function resolveViewer(req, data = {}) {
+async function resolveViewer(req, data = {}) {
   const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (ADMIN_TOKEN && token === ADMIN_TOKEN) return { id: 'admin', role: 'ADMIN', authenticated: true, privileged: true };
   if (BUSINESS_TOKEN && token === BUSINESS_TOKEN) return { id: 'business', role: 'BUSINESS', authenticated: true, privileged: true };
   const accessCode = String(data.accessCode || '').trim();
-  return { id: accessCode ? `code:${crypto.createHash('sha256').update(accessCode).digest('hex').slice(0, 16)}` : 'guest', role: 'GUEST', authenticated: false, privileged: ACCESS_CODES.includes(accessCode) };
+  const codeHash = accessCode ? hashAccessCode(accessCode) : '';
+  const [rows] = codeHash
+    ? await dbPool.execute(`SELECT id FROM \`${MYSQL_DATABASE}\`.blackcheck_access_codes WHERE code_hash = ? AND enabled = TRUE LIMIT 1`, [codeHash])
+    : [[]];
+  return { id: codeHash ? `code:${codeHash.slice(0, 16)}` : 'guest', role: 'GUEST', authenticated: false, privileged: rows.length > 0 };
 }
 
 function assertCanAccess(res, viewer) {
@@ -174,9 +192,7 @@ function assertCanWrite(res, viewer) {
   return false;
 }
 
-function mapComment(comment, store, viewer) {
-  const recommendationCount = store.recommendations.filter((item) => item.commentId === comment.id).length;
-  const isRecommendedByMe = store.recommendations.some((item) => item.commentId === comment.id && item.userId === viewer.id);
+function mapComment(comment) {
   return {
     id: comment.id,
     phoneNumber: comment.phoneNumber,
@@ -185,50 +201,52 @@ function mapComment(comment, store, viewer) {
     district: comment.district,
     comment: comment.comment,
     createdAt: comment.createdAt,
-    recommendationCount,
-    isRecommendedByMe,
-    sourceDatabase: comment.sourceDatabase,
-    readOnly: Boolean(comment.readOnly)
+    recommendationCount: Number(comment.recommendationCount || 0),
+    isRecommendedByMe: Boolean(comment.isRecommendedByMe),
+    sourceDatabase: MYSQL_DATABASE,
+    readOnly: false
   };
 }
 
-function databaseComment(row, database) {
-  const id = `${database}:${row.id}`;
+function databaseComment(row) {
   return {
-    id,
+    id: String(row.id),
     phoneNumber: row.phone_number,
     authorUserId: row.author_user_id,
     region: row.region,
     district: row.district,
     comment: row.comment,
     createdAt: row.created_at,
-    sourceDatabase: database,
-    readOnly: database !== PRIMARY_DATABASE
+    recommendationCount: row.recommendation_count,
+    isRecommendedByMe: Boolean(row.is_recommended_by_me)
   };
 }
 
-async function readDatabaseComments(phoneNumber) {
-  const results = await Promise.all([PRIMARY_DATABASE, SECONDARY_DATABASE].map(async (database) => {
-    const sql = `SELECT id, phone_number, author_user_id, region, district, comment, created_at FROM \`${database}\`.\`${COMMENTS_TABLE}\` WHERE phone_number = ?`;
-    const [rows] = await dbPool.execute(sql, [phoneNumber]);
-    return rows.map((row) => databaseComment(row, database));
-  }));
-  return results.flat();
+async function readDatabaseComments(phoneNumber, viewerId) {
+  const sql = `SELECT c.id, c.phone_number, c.author_user_id, c.region, c.district, c.comment, c.created_at,
+    COUNT(r.user_id) AS recommendation_count,
+    MAX(CASE WHEN r.user_id = ? THEN 1 ELSE 0 END) AS is_recommended_by_me
+    FROM \`${MYSQL_DATABASE}\`.bamcheat_comments c
+    LEFT JOIN \`${MYSQL_DATABASE}\`.bamcheat_recommendations r ON r.comment_id = c.id
+    WHERE c.phone_number = ?
+    GROUP BY c.id, c.phone_number, c.author_user_id, c.region, c.district, c.comment, c.created_at
+    ORDER BY c.created_at DESC`;
+  const [rows] = await dbPool.execute(sql, [viewerId, phoneNumber]);
+  return rows.map(databaseComment);
 }
 
-async function createDatabaseComment({ phoneNumber, region, district, comment }) {
-  if (!Number.isSafeInteger(DEFAULT_AUTHOR_USER_ID) || DEFAULT_AUTHOR_USER_ID < 1) throw new Error('BLACKCHECK_AUTHOR_USER_ID를 유효한 사용자 ID로 설정해주세요.');
-  const sql = `INSERT INTO \`${PRIMARY_DATABASE}\`.\`${COMMENTS_TABLE}\` (phone_number, author_user_id, region, district, comment) VALUES (?, ?, ?, ?, ?)`;
-  const [result] = await dbPool.execute(sql, [phoneNumber, DEFAULT_AUTHOR_USER_ID, region, district, comment]);
-  const [rows] = await dbPool.execute(`SELECT id, phone_number, author_user_id, region, district, comment, created_at FROM \`${PRIMARY_DATABASE}\`.\`${COMMENTS_TABLE}\` WHERE id = ?`, [result.insertId]);
-  return databaseComment(rows[0], PRIMARY_DATABASE);
+async function createDatabaseComment({ phoneNumber, authorUserId, region, district, comment }) {
+  const sql = `INSERT INTO \`${MYSQL_DATABASE}\`.bamcheat_comments (phone_number, author_user_id, region, district, comment) VALUES (?, ?, ?, ?, ?)`;
+  const [result] = await dbPool.execute(sql, [phoneNumber, authorUserId, region, district, comment]);
+  const [rows] = await dbPool.execute(`SELECT id, phone_number, author_user_id, region, district, comment, created_at FROM \`${MYSQL_DATABASE}\`.bamcheat_comments WHERE id = ?`, [result.insertId]);
+  return databaseComment(rows[0]);
 }
 
 async function handleApi(req, res, url) {
   const queryData = Object.fromEntries(url.searchParams.entries());
   const bodyData = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? await getRequestBody(req) : {};
   const input = { ...queryData, ...bodyData };
-  const viewer = resolveViewer(req, input);
+  const viewer = await resolveViewer(req, input);
 
   if (req.method === 'POST' && url.pathname === '/api/blackcheck/access') {
     if (!assertCanAccess(res, viewer)) return;
@@ -244,11 +262,7 @@ async function handleApi(req, res, url) {
       sendError(res, 400, '검색할 번호를 7~11자리 숫자로 입력해주세요.');
       return;
     }
-    const store = readStore();
-    const sourceComments = dbPool ? await readDatabaseComments(phoneNumber) : store.comments.filter((comment) => comment.phoneNumber === phoneNumber);
-    const comments = sourceComments
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .map((comment) => mapComment(comment, store, viewer));
+    const comments = (await readDatabaseComments(phoneNumber, viewer.id)).map(mapComment);
     sendJson(res, 200, { phoneNumber, comments, hasComments: comments.length > 0 });
     return;
   }
@@ -264,21 +278,8 @@ async function handleApi(req, res, url) {
     if (!district) return sendError(res, 400, '활동 구/군을 선택해주세요.');
     if (!commentText) return sendError(res, 400, '코멘트를 입력해주세요.');
 
-    const store = readStore();
-    const createdComment = dbPool ? await createDatabaseComment({ phoneNumber, region, district, comment: commentText }) : {
-      id: crypto.randomUUID(),
-      phoneNumber,
-      authorUserId: viewer.id,
-      region,
-      district,
-      comment: commentText,
-      createdAt: new Date().toISOString()
-    };
-    if (!dbPool) {
-      store.comments.push(createdComment);
-      writeStore(store);
-    }
-    sendJson(res, 201, { comment: mapComment(createdComment, store, viewer) });
+    const createdComment = await createDatabaseComment({ phoneNumber, authorUserId: viewer.id, region, district, comment: commentText });
+    sendJson(res, 201, { comment: mapComment(createdComment) });
     return;
   }
 
@@ -286,19 +287,18 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && recommendMatch) {
     if (!assertCanWrite(res, viewer)) return;
     const commentId = decodeURIComponent(recommendMatch[1]);
-    if (commentId.startsWith(`${SECONDARY_DATABASE}:`)) return sendError(res, 403, '외부 데이터베이스의 코멘트는 조회만 가능합니다.');
-    const store = readStore();
-    if (!dbPool && !store.comments.some((comment) => comment.id === commentId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
-    const existingIndex = store.recommendations.findIndex((item) => item.commentId === commentId && item.userId === viewer.id);
-    let isRecommendedByMe = true;
-    if (existingIndex >= 0) {
-      store.recommendations.splice(existingIndex, 1);
-      isRecommendedByMe = false;
+    if (!/^\d+$/.test(commentId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
+    const [comments] = await dbPool.execute(`SELECT id FROM \`${MYSQL_DATABASE}\`.bamcheat_comments WHERE id = ?`, [commentId]);
+    if (!comments.length) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
+    const [existing] = await dbPool.execute(`SELECT comment_id FROM \`${MYSQL_DATABASE}\`.bamcheat_recommendations WHERE comment_id = ? AND user_id = ?`, [commentId, viewer.id]);
+    const isRecommendedByMe = existing.length === 0;
+    if (isRecommendedByMe) {
+      await dbPool.execute(`INSERT INTO \`${MYSQL_DATABASE}\`.bamcheat_recommendations (comment_id, user_id) VALUES (?, ?)`, [commentId, viewer.id]);
     } else {
-      store.recommendations.push({ commentId, userId: viewer.id, createdAt: new Date().toISOString() });
+      await dbPool.execute(`DELETE FROM \`${MYSQL_DATABASE}\`.bamcheat_recommendations WHERE comment_id = ? AND user_id = ?`, [commentId, viewer.id]);
     }
-    writeStore(store);
-    const recommendationCount = store.recommendations.filter((item) => item.commentId === commentId).length;
+    const [[countRow]] = await dbPool.execute(`SELECT COUNT(*) AS count FROM \`${MYSQL_DATABASE}\`.bamcheat_recommendations WHERE comment_id = ?`, [commentId]);
+    const recommendationCount = Number(countRow.count);
     sendJson(res, 200, { recommendationCount, isRecommendedByMe });
     return;
   }
@@ -307,25 +307,9 @@ async function handleApi(req, res, url) {
   if (req.method === 'DELETE' && deleteMatch) {
     if (viewer.role !== 'ADMIN') return sendError(res, 403, '관리자만 코멘트를 삭제할 수 있습니다.');
     const commentId = decodeURIComponent(deleteMatch[1]);
-    if (dbPool) {
-      const prefix = `${PRIMARY_DATABASE}:`;
-      if (!commentId.startsWith(prefix)) return sendError(res, 403, '외부 데이터베이스의 코멘트는 삭제할 수 없습니다.');
-      const numericId = commentId.slice(prefix.length);
-      if (!/^\d+$/.test(numericId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
-      const [result] = await dbPool.execute(`DELETE FROM \`${PRIMARY_DATABASE}\`.\`${COMMENTS_TABLE}\` WHERE id = ?`, [numericId]);
-      if (!result.affectedRows) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
-      const store = readStore();
-      store.recommendations = store.recommendations.filter((item) => item.commentId !== commentId);
-      writeStore(store);
-      sendJson(res, 200, { success: true });
-      return;
-    }
-    const store = readStore();
-    const beforeCount = store.comments.length;
-    store.comments = store.comments.filter((comment) => comment.id !== commentId);
-    store.recommendations = store.recommendations.filter((item) => item.commentId !== commentId);
-    if (store.comments.length === beforeCount) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
-    writeStore(store);
+    if (!/^\d+$/.test(commentId)) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
+    const [result] = await dbPool.execute(`DELETE FROM \`${MYSQL_DATABASE}\`.bamcheat_comments WHERE id = ?`, [commentId]);
+    if (!result.affectedRows) return sendError(res, 404, '코멘트를 찾을 수 없습니다.');
     sendJson(res, 200, { success: true });
     return;
   }
@@ -374,8 +358,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  ensureDataFile();
-  console.log(`Blackcheck platform is running at http://localhost:${PORT}`);
-  console.log(`Data file: ${DATA_FILE}`);
+async function start() {
+  await initializeDatabase();
+  server.listen(PORT, () => {
+    console.log(`Blackcheck platform is running at http://localhost:${PORT}`);
+    console.log(`MySQL database: ${MYSQL_DATABASE}`);
+  });
+}
+
+start().catch((error) => {
+  console.error(`서버 시작 실패: ${error.message}`);
+  dbPool.end().finally(() => process.exit(1));
 });
