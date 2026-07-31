@@ -14,8 +14,7 @@
       <span>콜체크</span>
     </a>
     <nav class="header-actions" aria-label="입장코드 메뉴">
-      <span class="user-chip hidden" id="active-code-chip">입장코드 접속 중</span>
-      <button class="btn btn-ghost" type="button" id="reset-code-btn">코드 변경</button>
+      <button class="btn btn-ghost" type="button" id="reset-code-btn">인증완료</button>
     </nav>
   </header>
 
@@ -32,7 +31,7 @@
       <h2 id="access-title">접근 코드 입력</h2>
       <p class="muted">회원가입 없이 입장코드만 입력하면 조회와 코멘트를 자유롭게 이용할 수 있습니다.</p>
       <form id="access-form" class="inline-form">
-        <input class="form-control" id="access-code-input" type="password" placeholder="접근 코드 입력" autocomplete="off" required />
+        <input class="form-control" id="access-code-input" type="text" placeholder="접근 코드 입력" autocomplete="off" required />
         <button class="btn btn-primary" type="submit">입장</button>
       </form>
       <p class="status" id="access-status" role="status"></p>
