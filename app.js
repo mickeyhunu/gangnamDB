@@ -48,7 +48,6 @@ async function request(method, endpoint, data = {}) {
 function updateAccessView() {
   $('access-card')?.classList.toggle('hidden', Boolean(accessCode));
   $('content-card')?.classList.toggle('hidden', !accessCode);
-  $('active-code-chip')?.classList.toggle('hidden', !accessCode);
 }
 
 function updateDistricts() { const region = $('comment-region')?.value || ''; const districts = REGION_DISTRICT_MAP[region] || []; $('comment-district').innerHTML = '<option value="">구/군 선택</option>'; districts.forEach((district) => $('comment-district').append(new Option(district, district))); $('comment-district').disabled = !districts.length; }
