@@ -46,6 +46,7 @@ async function request(method, endpoint, data = {}) {
 }
 
 function updateAccessView() {
+  $('reset-code-btn')?.classList.toggle('hidden', !accessCode);
   $('access-card')?.classList.toggle('hidden', Boolean(accessCode));
   $('content-card')?.classList.toggle('hidden', !accessCode);
 }
