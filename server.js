@@ -9,6 +9,7 @@ const http = require('http');
 const path = require('path');
 const { URL } = require('url');
 const mysql = require('mysql2/promise');
+const { sanitizeComment } = require('./comment-utils');
 
 function loadEnvFile(filePath = path.join(__dirname, '.env')) {
   if (!fs.existsSync(filePath)) return;
@@ -169,10 +170,6 @@ function normalizePhoneNumber(value) {
   return String(value || '').replace(/[^0-9]/g, '').slice(0, 11).trim();
 }
 
-function sanitizeComment(value) {
-  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s{3,}/g, '  ').trim().slice(0, MAX_COMMENT_LENGTH);
-}
-
 async function resolveViewer(data = {}) {
   const accessCode = String(data.accessCode || '').trim();
   const [rows] = accessCode
@@ -295,11 +292,11 @@ async function handleApi(req, res, url) {
     const phoneNumber = normalizePhoneNumber(input.phoneNumber);
     const region = String(input.region || '').trim().slice(0, 50);
     const district = String(input.district || '').trim().slice(0, 50);
-    const commentText = sanitizeComment(input.comment);
+    const commentText = sanitizeComment(input.comment, MAX_COMMENT_LENGTH);
     if (!phoneNumber || phoneNumber.length < 7 || phoneNumber.length > 11) return sendError(res, 400, '전화번호를 7~11자리 숫자로 입력해주세요.');
     if (!region) return sendError(res, 400, '활동 시/도를 선택해주세요.');
     if (!district) return sendError(res, 400, '활동 구/군을 선택해주세요.');
-    if (!commentText) return sendError(res, 400, '코멘트를 입력해주세요.');
+    if (!commentText.trim()) return sendError(res, 400, '코멘트를 입력해주세요.');
 
     const createdComment = await createDatabaseComment({ phoneNumber, authorUserId: viewer.id, region, district, comment: commentText });
     sendJson(res, 201, { comment: mapComment(createdComment) });
