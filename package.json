@@ -9,8 +9,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check app.js && node --check comment-utils.js",
-    "test": "node --test"
+    "check": "node --check server.js && node --check app.js && node --check comment-utils.js"
   },
   "engines": {
     "node": ">=18"
